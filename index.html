@@ -34,9 +34,10 @@
     }
     .monolith-wrapper {
       position: relative;
-      display: inline-flex;
+      display: flex;
       flex-direction: column;
       align-items: center;
+      width: 100%;
     }
     .monolith-float {
       position: relative;
@@ -56,8 +57,10 @@
     }
     #monolith-canvas {
       display: block;
-      max-width: 72vw;
+      width: 72vw;
+      max-width: 720px;
       height: auto;
+      margin: 0 auto;
     }
     /* canvas has ~28px blank below the slab; bottom:-12px puts shadow ~40px below the slab */
     .ground-shadow {
@@ -110,7 +113,7 @@
     ></div>
 
     <!-- Gradient overlay — heavier at bottom so text sits clean -->
-    <div class="absolute inset-0 bg-gradient-to-b from-black/20 via-black/30 to-black/70"></div>
+    <div class="absolute inset-0 bg-gradient-to-b from-transparent to-black/40"></div>
 
     <!-- CSS/canvas monolith + title -->
     <div class="monolith-scene">
