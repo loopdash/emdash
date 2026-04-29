@@ -7,9 +7,9 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=Instrument+Serif&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&family=Roboto+Serif:ital,opsz,wght@0,8..144,300;0,8..144,400;0,8..144,500;1,8..144,300&family=Instrument+Serif&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; }
+    body { font-family: 'Roboto Serif', serif; }
     input:-webkit-autofill {
       -webkit-box-shadow: 0 0 0 30px rgba(255,255,255,0.05) inset !important;
       -webkit-text-fill-color: white !important;
@@ -40,7 +40,9 @@
     }
     .monolith-float {
       position: relative;
-      animation: monolith-float 6s ease-in-out infinite;
+      animation:
+        monolith-enter 3s cubic-bezier(0.2, 0.8, 0.3, 1) both,
+        monolith-float 6s ease-in-out 3s infinite;
     }
     /* slab spans x:72–648, y:48–163 within 720×200 canvas */
     .monolith-blur-layer {
@@ -60,23 +62,41 @@
     /* canvas has ~28px blank below the slab; bottom:-12px puts shadow ~40px below the slab */
     .ground-shadow {
       position: absolute;
-      bottom: -12px;
+      bottom: -20px;
       left: 50%;
-      width: 54%;
-      height: 20px;
-      background: radial-gradient(ellipse at center, rgba(0,0,0,0.8) 0%, transparent 70%);
+      width: 80%;
+      height: 40px;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.4) 40%, transparent 70%);
       border-radius: 50%;
-      filter: blur(10px);
-      animation: shadow-breath 6s ease-in-out infinite;
+      filter: blur(18px);
+      animation:
+        shadow-enter  3s ease both,
+        shadow-breath 6s ease-in-out 3s infinite;
+    }
+    @keyframes fade-up {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in {
+      opacity: 0;
+      animation: fade-up 1.2s ease forwards;
+    }
+    @keyframes monolith-enter {
+      from { transform: translateY(-120px); opacity: 0; }
+      to   { transform: translateY(0px);    opacity: 1; }
     }
     @keyframes monolith-float {
       0%, 100% { transform: translateY(0px); }
       50%       { transform: translateY(-10px); }
     }
+    @keyframes shadow-enter {
+      from { transform: translateX(-50%) scale(0.15); opacity: 0; }
+      to   { transform: translateX(-50%) scale(1);    opacity: 1; }
+    }
     /* inverse of float — largest/darkest when craft is at its lowest */
     @keyframes shadow-breath {
-      0%, 100% { transform: translateX(-50%) scale(1);    opacity: 0.75; }
-      50%       { transform: translateX(-50%) scale(0.5);  opacity: 0.2; }
+      0%, 100% { transform: translateX(-50%) scale(1);    opacity: 1; }
+      50%       { transform: translateX(-50%) scale(0.4);  opacity: 0.15; }
     }
   </style>
 </head>
@@ -95,8 +115,8 @@
     <!-- CSS/canvas monolith + title -->
     <div class="monolith-scene">
       <div class="text-center">
-        <h1 class="monolith-title">Emdash</h1>
-        <p class="text-white/50 text-sm font-light tracking-wide mt-2" style="font-family:'Inter',sans-serif;">Its origin and purpose are still a total mystery.</p>
+        <h1 class="monolith-title fade-in" style="animation-delay:0.8s;">Emdash</h1>
+        <p class="text-white/50 text-sm font-light tracking-wide mt-2 fade-in" style="font-family:'Roboto',sans-serif;animation-delay:1.2s;">Its origin and purpose are still a total mystery.</p>
       </div>
       <div class="monolith-wrapper">
         <div class="monolith-float">
@@ -111,7 +131,10 @@
       <div class="text-center max-w-lg">
         <a
           href="mailto:gary@loopdash.com"
-          class="inline-flex items-center justify-center rounded-md bg-white text-black text-sm font-medium px-5 py-2.5 shadow-sm hover:bg-zinc-100 active:bg-zinc-200 transition-colors"
+          class="inline-flex items-center justify-center rounded-md text-black text-sm font-medium px-5 py-2.5 transition-colors fade-in"
+          style="font-family:'Roboto',sans-serif;background:rgba(250,250,252,0.25);backdrop-filter:saturate(180%) blur(3px);-webkit-backdrop-filter:saturate(180%) blur(3px);animation-delay:1.8s;transition:background 0.2s ease;"
+          onmouseover="this.style.background='rgba(250,250,252,0.45)'"
+          onmouseout="this.style.background='rgba(250,250,252,0.25)'"
         >
           Learn More
         </a>
@@ -121,7 +144,6 @@
     <!-- Footer -->
     <footer class="relative z-10 px-8 pb-8 flex justify-between items-end">
       <span class="text-white/20 text-xs tracking-widest font-light">© 2026</span>
-      <span class="text-white/20 text-xs tracking-widest font-light">Emdash</span>
     </footer>
 
   </div>
