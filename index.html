@@ -45,13 +45,13 @@
         monolith-enter 3s cubic-bezier(0.2, 0.8, 0.3, 1) both,
         monolith-float 6s ease-in-out 3s infinite;
     }
-    /* slab spans x:72–648, y:48–163 within 720×200 canvas */
+    /* slab spans x:72–648, y:38–154 within 720×200 canvas */
     .monolith-blur-layer {
       position: absolute;
       left: 10%;
       right: 10%;
       top: 24%;
-      height: 57.5%;
+      height: 50%;
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
     }
@@ -108,19 +108,23 @@
 
     <!-- Background image -->
     <div
+      id="bg"
       class="absolute inset-0 bg-cover bg-center bg-no-repeat"
-      style="background-image: url('example_1_removed.png')"
+      style="background-image: url('v-1.png')"
     ></div>
+
+    <script>
+      (function () {
+        const param = new URLSearchParams(location.search).keys().next().value;
+        if (param) document.getElementById('bg').style.backgroundImage = "url('" + param + "')";
+      })();
+    </script>
 
     <!-- Gradient overlay — heavier at bottom so text sits clean -->
     <div class="absolute inset-0 bg-gradient-to-b from-transparent to-black/40"></div>
 
     <!-- CSS/canvas monolith + title -->
     <div class="monolith-scene">
-      <div class="text-center px-8">
-        <h1 class="monolith-title fade-in" style="animation-delay:0.8s;">Emdash</h1>
-        <p class="text-white/70 text-base font-light tracking-wide mt-3 fade-in" style="animation-delay:1.2s;">its origin and purpose are still a total mystery.</p>
-      </div>
       <div class="monolith-wrapper">
         <div class="monolith-float">
           <canvas id="monolith-canvas" width="720" height="200"></canvas>
@@ -160,12 +164,12 @@
       //
       // 72 ──────────────────────────────── 648  y=38  ← top of front face
       // |            front face              |
-      // 72 ──────────────────────────────── 648  y=138 ← seam front/bottom
+      // 72 ──────────────────────────────── 648  y=126 ← seam front/bottom
       //  \  bottom face (viewed from below) /
-      //  108 ────────────────────────────── 612  y=166
+      //  108 ────────────────────────────── 612  y=154
 
-      const FF = { tl:{x:72,y:38},  tr:{x:648,y:38},  bl:{x:72,y:138}, br:{x:648,y:138} };
-      const BF = { fl:{x:72,y:138}, fr:{x:648,y:138}, bl:{x:108,y:166},br:{x:612,y:166} };
+      const FF = { tl:{x:72,y:38},  tr:{x:648,y:38},  bl:{x:72,y:126}, br:{x:648,y:126} };
+      const BF = { fl:{x:72,y:126}, fr:{x:648,y:126}, bl:{x:108,y:154},br:{x:612,y:154} };
 
       function face(pts) {
         ctx.beginPath();
