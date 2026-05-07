@@ -302,8 +302,6 @@
       powerPreference: 'high-performance'
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
@@ -417,40 +415,38 @@
     };
 
     const slab = new THREE.Mesh(slabGeo, slabMat);
-    slab.castShadow = true;
     scene.add(slab);
 
-    // Invisible plane that catches the cast shadow from the key light. Sits
-    // near the bottom of the visible frustum so the shadow lands on the
-    // foreground grass area rather than directly under the hovering slab.
-    const groundMat = new THREE.ShadowMaterial({ opacity: 0, transparent: true });
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -1.15;
-    ground.receiveShadow = true;
-    scene.add(ground);
-
-    // Contact shadow — procedural radial gradient baked to a plane sitting
-    // just above the catcher. Now tuned for a diffused, atmospheric shadow
-    // rather than a defined oval: lower per-pixel alpha at the centre, a
-    // long multi-stop falloff that fades almost to nothing at the edges,
-    // and a slightly off-centre origin that implies the cast direction
-    // without becoming a hard directional shape. Colour is a deep moss-and-
-    // earth tone so the shadow tints with the same green-brown as nearby
-    // grass shadows rather than reading as flat black.
+    // Painted floor shadow — one soft elliptical gradient on a ground-aligned
+    // plane. Replaces the previous stack (dynamic shadow map + contact halo
+    // + AO crease) which flickered as the slab bounced.
+    //
+    // Sizing rule: the painted alpha-0 boundary must finish *inside* every
+    // canvas edge. Otherwise the canvas crops the gradient mid-fade and the
+    // crop reads as a hard line — the failure mode in the previous pass.
+    // The gradient end radius (341 px) is sized so its world-space reach
+    // (~4 plane units horizontally, ~1.33 vertically with the y-scale) fits
+    // inside the camera's visible cone at the plane's z, and the plane is
+    // pushed back in z so the alpha-0 vertical line projects well above the
+    // canvas bottom. Center alpha is also boosted — the previous version
+    // read as a faint smudge.
     const shadowCanvas = document.createElement('canvas');
-    shadowCanvas.width = 512;
-    shadowCanvas.height = 256;
+    shadowCanvas.width = 1024;
+    shadowCanvas.height = 341;
     const sctx = shadowCanvas.getContext('2d');
-    const grad = sctx.createRadialGradient(244, 132, 20, 256, 128, 280);
-    grad.addColorStop(0.00, 'rgba(14, 18, 10, 0.42)');
-    grad.addColorStop(0.22, 'rgba(14, 18, 10, 0.28)');
-    grad.addColorStop(0.45, 'rgba(14, 18, 10, 0.14)');
-    grad.addColorStop(0.70, 'rgba(14, 18, 10, 0.05)');
-    grad.addColorStop(0.90, 'rgba(14, 18, 10, 0.01)');
-    grad.addColorStop(1.00, 'rgba(14, 18, 10, 0)');
+    sctx.save();
+    sctx.translate(512, 170.5);
+    sctx.scale(1, 0.333);
+    const grad = sctx.createRadialGradient(0, 0, 0, 0, 0, 341);
+    grad.addColorStop(0.00, 'rgba(10, 14, 8, 0.62)');
+    grad.addColorStop(0.18, 'rgba(10, 14, 8, 0.44)');
+    grad.addColorStop(0.40, 'rgba(10, 14, 8, 0.24)');
+    grad.addColorStop(0.65, 'rgba(10, 14, 8, 0.09)');
+    grad.addColorStop(0.85, 'rgba(10, 14, 8, 0.02)');
+    grad.addColorStop(1.00, 'rgba(10, 14, 8, 0)');
     sctx.fillStyle = grad;
-    sctx.fillRect(0, 0, 512, 256);
+    sctx.fillRect(-512, -512, 1024, 1024);
+    sctx.restore();
 
     const contactTex = new THREE.CanvasTexture(shadowCanvas);
     contactTex.colorSpace = THREE.SRGBColorSpace;
@@ -460,65 +456,12 @@
       opacity: 0,
       depthWrite: false
     });
-    // Plane sized larger than the slab footprint so the diffused shadow
-    // bleeds well past the silhouette and fades into the grass without an
-    // identifiable boundary. Slight Z and Y rotations give the cast a subtle
-    // non-parallel orientation so it doesn't read as a printed oval.
-    const contactShadow = new THREE.Mesh(new THREE.PlaneGeometry(14, 5.6), contactMat);
+    const contactShadow = new THREE.Mesh(new THREE.PlaneGeometry(12, 4), contactMat);
     contactShadow.rotation.x = -Math.PI / 2;
-    contactShadow.rotation.z = 0.06;
-    contactShadow.rotation.y = -0.04;
-    contactShadow.position.set(-1.4, -1.15, 0.1);
+    contactShadow.rotation.z = 0.04;
+    contactShadow.position.set(-0.4, -1.15, -1.5);
     contactShadow.renderOrder = 1;
     scene.add(contactShadow);
-
-    // Contact AO crease — tight elliptical band that tracks the slab's
-    // footprint 1:1. The wider contact shadow above provides the soft halo;
-    // this layer adds the dense shadow buildup right where the slab kisses
-    // the grass, removing the "sticker pasted on photo" effect. The inner
-    // stop is concentrated very close to the contact line so the visual
-    // weight stacks at the base, then falls off softly so it blends into
-    // the grass without a harsh outline.
-    // Now a diffuse low-density layer rather than a tight crease — a
-    // hovering slab has no real contact, so this just adds a faint extra
-    // density at the projected shadow centre to keep the overall shadow
-    // grounded. Wider radial extent and a much gentler peak alpha so the
-    // mesh blends rather than forming a defined band.
-    const aoCanvas = document.createElement('canvas');
-    aoCanvas.width = 1024;
-    aoCanvas.height = 320;
-    const aoCtx = aoCanvas.getContext('2d');
-    aoCtx.save();
-    aoCtx.translate(512, 160);
-    aoCtx.scale(1, 0.32);
-    const aoGrad = aoCtx.createRadialGradient(0, 0, 28, 0, 0, 560);
-    aoGrad.addColorStop(0.00, 'rgba(8, 12, 6, 0.50)');
-    aoGrad.addColorStop(0.20, 'rgba(8, 12, 6, 0.30)');
-    aoGrad.addColorStop(0.45, 'rgba(8, 12, 6, 0.14)');
-    aoGrad.addColorStop(0.75, 'rgba(8, 12, 6, 0.04)');
-    aoGrad.addColorStop(1.00, 'rgba(8, 12, 6, 0)');
-    aoCtx.fillStyle = aoGrad;
-    aoCtx.fillRect(-600, -800, 1200, 1600);
-    aoCtx.restore();
-
-    const aoTex = new THREE.CanvasTexture(aoCanvas);
-    aoTex.colorSpace = THREE.SRGBColorSpace;
-    const aoMat = new THREE.MeshBasicMaterial({
-      map: aoTex,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false
-    });
-    // Slightly wider than the slab footprint (4.8 × 0.65) so the falloff
-    // bleeds into the surrounding grass instead of stopping at a clean edge.
-    // Sits at the same y as the cast-shadow plane and is offset down-left in
-    // x so the dense shadow build-up sits where the slab's projected shadow
-    // lands on the grass — not directly under the hovering slab.
-    const aoMesh = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.8), aoMat);
-    aoMesh.rotation.x = -Math.PI / 2;
-    aoMesh.position.set(-1.0, -1.15, 0);
-    aoMesh.renderOrder = 2;
-    scene.add(aoMesh);
 
     // Lighting matched to the green-mountains backdrop. Hemisphere tones
     // sampled directly from the image: bright cerulean sky overhead, warm
@@ -532,17 +475,6 @@
     // along the cliff tops.
     const key = new THREE.DirectionalLight(0xf6dcae, 3.1);
     key.position.set(3.8, 4.7, 2.2);
-    key.castShadow = true;
-    key.shadow.mapSize.set(2048, 2048);
-    key.shadow.camera.near = 1;
-    key.shadow.camera.far = 18;
-    key.shadow.camera.left = -5;
-    key.shadow.camera.right = 5;
-    key.shadow.camera.top = 4;
-    key.shadow.camera.bottom = -4;
-    key.shadow.bias = -0.0005;
-    /* Larger PCF radius — softer, more diffuse cast-shadow edges. */
-    key.shadow.radius = 26;
     scene.add(key);
 
     // Rim — pale atmospheric haze sampled from the band where distant ridges
@@ -596,32 +528,27 @@
     const clock = new THREE.Clock();
     const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
     const ENTER = 3.0;
-    // Equilibrium hover height in world space — the slab sits this far above
-    // the shadow catcher so it reads as silently suspended rather than
-    // landing. Tuned so the slab's bob peaks stay just inside the camera's
-    // visible vertical range.
-    const HOVER = 0.65;
-    /* Cast shadow on the catcher is intentionally weakened — the diffuse
-       contact-shadow plane below now does the heavy lifting visually, and
-       the cast layer just adds a faint silhouette hint. */
-    const SHADOW_OPACITY = 0.32;
-    /* Diffuse contact-shadow opacity. Plane is large so even a moderate
-       value reads as a soft halo rather than a defined oval. */
-    const CONTACT_OPACITY = 0.6;
-    const CONTACT_BASE_X = -1.4;
-    /* AO is now an atmospheric density-add, not a contact crease — peak
-       alpha well below the contact-shadow's so it never forms a band. */
-    const AO_OPACITY = 0.18;
-    const AO_BASE_X = -1.0;
+    // Equilibrium hover height in world space. Tuned so the slab's full bob
+    // amplitude fits cleanly inside the camera's visible vertical range —
+    // peak-bob crests stay below the canvas top edge so the slab never
+    // clips and never needs a softening mask.
+    const HOVER = 0.3;
+    /* Painted floor-shadow opacity. Combined with the boosted gradient
+       alphas, this lands the shadow firmly on the grass without it
+       reading as a defined oval. */
+    const CONTACT_OPACITY = 0.9;
+    const CONTACT_BASE_X = -0.4;
 
     function frame() {
       const t = clock.getElapsedTime();
 
-      // Entry: drop in from above with an ease-out cubic, fading material +
-      // shadow opacity together so the slab and its grounding read as one.
+      // Entry: opacity-only fade-in. A positional drop from above the canvas
+      // crossed the top edge as a hard silhouette line before the slab
+      // settled; fading in at the equilibrium hover height lets the slab
+      // come in cleanly with no edge artifact.
       const e = reduceMotion ? 1 : Math.min(1, t / ENTER);
       const ease = easeOutCubic(e);
-      const enterY = (1 - ease) * 1.3;
+      const enterY = 0;
       const opacity = ease;
 
       // Pointer lerp — slow follow gives the slab inertia, like it's correcting
@@ -631,14 +558,12 @@
 
       // Procedural motion — layered sines at incommensurable frequencies so
       // the slab never visibly loops. Vertical hover is the dominant signal:
-      // a heavy primary rise/fall (period ~24s), a slow undertone (~48s),
-      // and a smaller correction wave (~13s) read as gentle anti-gravity
-      // stabilisation rather than a buoyant balloon. Drift and rotation
-      // wobbles are intentionally smaller so the eye reads the vertical
-      // suspension first and the rest as quiet structural settling.
-      const bobY   = Math.sin(t * 0.26)        * 0.150
-                   + Math.cos(t * 0.13 + 0.4)  * 0.045
-                   + Math.sin(t * 0.48 + 1.3)  * 0.030;
+      // a strong primary rise/fall, a slow undertone, and a smaller
+      // correction wave. Amplitude tuned so the slab visibly rides up and
+      // down through the frame without clipping the camera's vertical FOV.
+      const bobY   = Math.sin(t * 0.28)        * 0.34
+                   + Math.cos(t * 0.13 + 0.4)  * 0.09
+                   + Math.sin(t * 0.48 + 1.3)  * 0.05;
       const driftX = Math.sin(t * 0.14 + 0.6)  * 0.030
                    + Math.cos(t * 0.31 + 1.9)  * 0.010;
       const driftY = Math.cos(t * 0.18 + 0.2)  * 0.012;
@@ -660,21 +585,14 @@
       slab.rotation.z = wobZ * blend;
 
       slabMat.opacity = opacity;
-      groundMat.opacity = SHADOW_OPACITY * opacity;
 
-      // Contact shadow tracks the slab's horizontal drift partially so it
-      // feels anchored to the ground rather than glued to the slab — and
-      // softens slightly as the slab lifts during entry, mimicking how a
-      // hovering object's contact shadow weakens with height.
-      contactMat.opacity = CONTACT_OPACITY * opacity * (1 - enterY * 0.4);
-      contactShadow.position.x = CONTACT_BASE_X + slab.position.x * 0.5;
-
-      // AO sits at the projected shadow location (down-left of slab),
-      // tracking the slab's horizontal drift partially so it stays anchored
-      // to the ground rather than sliding 1:1 with the slab. Dims faster
-      // with entry lift since it represents proximity-based occlusion.
-      aoMat.opacity = AO_OPACITY * opacity * (1 - enterY * 0.7);
-      aoMesh.position.x = AO_BASE_X + slab.position.x * 0.5;
+      // Painted shadow holds steady as the slab bounces — a hovering
+      // object's floor shadow shouldn't visibly track its hover height, and
+      // a stable opacity means no per-frame flicker. Horizontal drift only
+      // partially follows the slab so the shadow feels anchored to the
+      // ground rather than glued to the object.
+      contactMat.opacity = CONTACT_OPACITY * opacity;
+      contactShadow.position.x = CONTACT_BASE_X + slab.position.x * 0.4;
 
       renderer.render(scene, camera);
       requestAnimationFrame(frame);
