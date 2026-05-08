@@ -155,6 +155,20 @@
            background mountain plate. */
         height: 40vh;
       }
+      /* On narrow viewports drive the image off its height instead of width,
+         so the grass plate keeps its vertical presence and simply overflows
+         horizontally (centered). Without this the img collapses to the
+         viewport width and the foreground reads as a thin strip. */
+      #foreground img {
+        height: 100%;
+        width: auto;
+        min-width: 100%;
+        max-width: none;
+        left: 50%;
+        transform: translateX(-50%);
+        object-fit: cover;
+        object-position: center bottom;
+      }
     }
     @keyframes fade-up {
       from { opacity: 0; transform: translateY(10px); }
