@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Emdash</title>
+  <meta name="description" content="— — — — — — — — —">
+
+  <meta property="og:title" content="Emdash">
+  <meta property="og:description" content="— — — — — — — — —">
+  <meta property="og:image" content="/meta-og.jpg">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://yourdomain.com">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Emdash">
+  <meta name="twitter:description" content="— — — — — — — — —">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html, body { height: 100%; overflow: hidden; }
+    body { font-family: 'IBM Plex Sans', sans-serif; }
+    input:-webkit-autofill {
+      -webkit-box-shadow: 0 0 0 30px rgba(255,255,255,0.05) inset !important;
+      -webkit-text-fill-color: white !important;
+    }
+    /* Layer stack — back to front:
+       0  #bg-mountain   distant mountains + sky
+       2  #foreground    grass terrain plate
+       3  #contact-haze  warm green air right where slab meets terrain
+       4  .monolith-scene  the slab, fully in front of the grass
+       10 footer/main    UI on top of everything
+    */
+    #bg-mountain {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background-image: url('golden-background.jpg');
+      background-size: cover;
+      background-position: center 38%;
+      background-repeat: no-repeat;
+      will-change: transform;
+      /* Slight scale so parallax translate never reveals an edge */
+      transform: scale(1.04);
+    }
+    .monolith-scene {
+      position: absolute;
+      inset: 0;
+      z-index: 4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 32px;
+      pointer-events: none;
+      /* Pushes the canvas slightly down so the cast shadow lands cleanly
+         within the foreground band (lower third) while the slab itself
+         stays well above the ridgeline. */
+      transform: translateY(4vh);
+      will-change: transform;
+    }
+    /* Portrait / narrow viewports — preserve the same composition logic
+       (slab hovers, shadow lands on foreground) by enlarging the canvas and
+       pushing it further down so the shadow lands inside the (now 40vh)
+       foreground's solid band. translateY tuned so:
+         - slab bottom sits ~5vh above the foreground's visible edge
+         - shadow lands ~4vh inside the >90%-opaque area of the mask. */
+    @media (max-aspect-ratio: 1/1) {
+      .monolith-scene {
+        transform: translateY(20vh);
+      }
+      #monolith-canvas {
+        width: 90vw;
+        max-width: 90vw;
+      }
+    }
+    .monolith-wrapper {
+      position: relative;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+    }
+    /* Match the original footprint (72vw / max 720px) but give a little extra
+       vertical room for the soft contact shadow rendered inside the canvas. */
+    #monolith-canvas {
+      display: block;
+      width: 56vw;
+      max-width: 620px;
+      aspect-ratio: 720 / 240;
+      height: auto;
+    }
+    #contact-haze {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 18vh;
+      height: 14vh;
+      z-index: 3;
+      pointer-events: none;
+      background: radial-gradient(60% 100% at 50% 80%,
+        rgba(168, 184, 92, 0.18) 0%,
+        rgba(168, 184, 92, 0.06) 45%,
+        transparent 75%);
+      mix-blend-mode: soft-light;
+      will-change: transform;
+    }
+    #foreground {
+      position: fixed;
+      left: -2vw;
+      right: -2vw;
+      bottom: 0;
+      z-index: 2;
+      pointer-events: none;
+      height: 60vh;
+      overflow: hidden;
+      /* Soft cinematic top fade — solid grass at the bottom, gradual
+         transparency toward the upper edge so the foreground dissolves
+         into the atmosphere instead of cutting at a hard horizontal line.
+         A small 2° tilt breaks the perfect horizontal so the fade itself
+         never reads as a straight Photoshop crop. */
+      -webkit-mask-image: linear-gradient(2deg,
+        black 0%,
+        black 45%,
+        rgba(0,0,0,0.92) 58%,
+        rgba(0,0,0,0.7)  70%,
+        rgba(0,0,0,0.4)  82%,
+        rgba(0,0,0,0.15) 92%,
+        transparent      100%);
+              mask-image: linear-gradient(2deg,
+        black 0%,
+        black 45%,
+        rgba(0,0,0,0.92) 58%,
+        rgba(0,0,0,0.7)  70%,
+        rgba(0,0,0,0.4)  82%,
+        rgba(0,0,0,0.15) 92%,
+        transparent      100%);
+    }
+    #foreground img {
+      display: block;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: auto;
+      /* PNG already carries alpha for the sky region; bottom-anchored so
+         the visible band is the grass + lower hills. */
+    }
+    @media (max-aspect-ratio: 1/1) {
+      #foreground {
+        /* Mobile foreground holds at ~40vh so the monolith's cast shadow
+           lands well inside the solid lower band of the mask rather than
+           drifting up to the foreground's faded top edge or onto the
+           background mountain plate. */
+        height: 40vh;
+      }
+    }
+    @keyframes fade-up {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in {
+      opacity: 0;
+      animation: fade-up 1.2s ease forwards;
+    }
+  </style>
+</head>
+<body class="bg-black">
+  <div class="relative flex flex-col" style="height:100dvh;overflow:hidden;">
+
+    <!-- Background mountain layer -->
+    <div id="bg-mountain"></div>
+
+    <script>
+      // Query param keeps the original "swap background" behaviour. When set,
+      // it overrides the layered scene and hides the foreground so the URL
+      // can still preview alternate scenes (stock-1.jpg etc.) cleanly.
+      (function () {
+        const param = new URLSearchParams(location.search).keys().next().value;
+        if (param) {
+          document.getElementById('bg-mountain').style.backgroundImage = "url('" + param + "')";
+          document.documentElement.dataset.singleLayer = 'true';
+        }
+      })();
+    </script>
+
+    <!-- Three.js monolith — sits between background and foreground -->
+    <div class="monolith-scene">
+      <div class="monolith-wrapper">
+        <canvas id="monolith-canvas"></canvas>
+      </div>
+    </div>
+
+    <!-- Warm grass-air haze where the slab meets the terrain -->
+    <div id="contact-haze"></div>
+
+    <!-- Foreground grass — PNG already carries alpha for the sky region.
+         The CSS mask-image on the container further feathers the top edge
+         so the foreground dissolves atmospherically rather than cutting at
+         a hard line. -->
+    <div id="foreground">
+      <img src="golden-foreground.png" alt="">
+    </div>
+
+    <main class="relative z-10 flex-1"></main>
+
+    <!-- Footer -->
+    <footer class="relative z-20 px-8 pb-8 flex justify-center">
+      <a
+        href="mailto:mike@emdashlabs.com"
+        class="text-white/70 text-xs tracking-widest uppercase underline underline-offset-4 fade-in"
+        style="animation-delay:1.8s;cursor:pointer;transition:color 0.4s cubic-bezier(0,0,1,1), text-decoration-color 0.4s cubic-bezier(0,0,1,1);text-shadow:0 1px 6px rgba(0,0,0,0.45);"
+        onmouseover="this.style.color='rgba(255,255,255,0.95)'"
+        onmouseout="this.style.color='rgba(255,255,255,0.7)'"
+      >
+        Contact Us
+      </a>
+    </footer>
+
+  </div>
+
+  <script>
+    // Hide foreground/haze layers when a query-param scene is loaded — the
+    // separated foreground only matches the default landscape.
+    (function () {
+      if (document.documentElement.dataset.singleLayer !== 'true') return;
+      ['foreground', 'contact-haze'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
+    })();
+  </script>
+
+  <script>
+    // Parallax — pointer-driven micro-motion so the layered composition reads
+    // as depth instead of as flat decals. Background moves least (distant
+    // objects shift less in parallax), foreground moves most (near objects
+    // sweep past the eye). Monolith motion is handled inside the three.js
+    // pointer lerp; this layer just nudges the photo plates in opposition.
+    // All amplitudes are intentionally small — this is a cinematic breath,
+    // not a trackpad-driven layered scroll effect.
+    (function () {
+      if (document.documentElement.dataset.singleLayer === 'true') return;
+      const bg = document.getElementById('bg-mountain');
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      let tx = 0, ty = 0, x = 0, y = 0;
+      window.addEventListener('pointermove', function (e) {
+        tx = (e.clientX / window.innerWidth) * 2 - 1;
+        ty = (e.clientY / window.innerHeight) * 2 - 1;
+      }, { passive: true });
+      // Foreground stays pinned and photographic — depth comes from the
+      // relationship between layers, not from each plate sliding.
+      function tick() {
+        x += (tx - x) * 0.04;
+        y += (ty - y) * 0.04;
+        const k = reduce ? 0 : 1;
+        bg.style.transform = 'scale(1.04) translate3d(' + (-x * 4 * k).toFixed(2) + 'px, ' + (-y * 2 * k).toFixed(2) + 'px, 0)';
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    })();
+  </script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+    const canvas = document.getElementById('monolith-canvas');
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance'
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+
+    const scene = new THREE.Scene();
+
+    // Atmospheric haze — pale blue-green tone sampled from the band where the
+    // distant ridges meet the sky. Tighter near/far than before so receding
+    // edges visibly soften into the same air that's washing the far peaks,
+    // while the near face stays clean.
+    scene.fog = new THREE.Fog(0xb8c8c0, 7.4, 11.4);
+
+    // Environmental reflection map — vertical bands sampled from the photo:
+    // clean cerulean sky at the zenith, paler atmospheric haze across the
+    // horizon, sandstone ridge band, vivid mid-ground green hills, deep grass
+    // shadow at the base. PMREM-baked so the mip blur produces soft, abstract
+    // reflections that shift with surface orientation — upward faces pick up
+    // sky tone, downward faces pick up grassland tone.
+    const envCanvas = document.createElement('canvas');
+    envCanvas.width = 512;
+    envCanvas.height = 256;
+    const ectx = envCanvas.getContext('2d');
+    const envGrad = ectx.createLinearGradient(0, 0, 0, 256);
+    envGrad.addColorStop(0.00, '#7fb8dc');
+    envGrad.addColorStop(0.38, '#a8c8d8');
+    envGrad.addColorStop(0.48, '#b8c4ac');
+    envGrad.addColorStop(0.58, '#7a9248');
+    envGrad.addColorStop(0.78, '#4a6028');
+    envGrad.addColorStop(1.00, '#2c3a18');
+    ectx.fillStyle = envGrad;
+    ectx.fillRect(0, 0, 512, 256);
+
+    const envTex = new THREE.CanvasTexture(envCanvas);
+    envTex.mapping = THREE.EquirectangularReflectionMapping;
+    envTex.colorSpace = THREE.SRGBColorSpace;
+
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromEquirectangular(envTex).texture;
+    envTex.dispose();
+    pmrem.dispose();
+    if ('environmentIntensity' in scene) scene.environmentIntensity = 0.85;
+
+    // Camera — narrow 17° FOV matches the photo's telephoto compression
+    // (mountain peaks read flat against the sky, no wide-angle stretch).
+    // Lowered to a near-eye-level height with a ~4° downward tilt — same
+    // rough angle as the photo, where the horizon sits just above centre.
+    // This keeps the visible top face minimal so the slab reads as
+    // photographed by the same lens that took the landscape, rather than
+    // a 3/4 product shot pasted into a scenery plate.
+    const camera = new THREE.PerspectiveCamera(17, 720 / 240, 0.1, 100);
+    camera.position.set(0, 0.55, 8);
+    camera.lookAt(0, -0.02, 0);
+
+    // Monolith — bevel is slightly larger now (0.045) and uses 6 segments so
+    // corner highlights roll off smoothly across more pixels, killing the
+    // hard CG-edge silhouette without losing the slab's geometric clarity.
+    // Base colour is a deep mossy green-slate sampled from the mountain
+    // crevice shadows (avoids pure black, picks up the scene's green cast)
+    // with a warm sandstone sheen at glancing angles so the slab's edges
+    // catch the same warm-rim glow that lights the cliff tops.
+    const slabGeo = new RoundedBoxGeometry(4.8, 0.75, 0.65, 6, 0.045);
+    const slabMat = new THREE.MeshPhysicalMaterial({
+      color: 0x1f2820,
+      metalness: 0.42,
+      roughness: 0.42,
+      clearcoat: 0.55,
+      clearcoatRoughness: 0.48,
+      reflectivity: 0.55,
+      sheen: 0.4,
+      sheenColor: 0xa89878,
+      sheenRoughness: 0.6,
+      transparent: true,
+      opacity: 0
+    });
+    // Atmospheric edge diffusion + film grain. Both injected after the
+    // colour-space chunk so they operate on the final sRGB output.
+    //
+    // Atmospheric scatter: at glancing view angles the silhouette blends
+    // toward scene tones, with a directional split — top-facing edges
+    // scatter toward sky blue, side edges fade toward atmospheric haze,
+    // underside edges pick up the warm green grassland bounce. This
+    // embeds the slab in the same air column as the distant ridges
+    // instead of cutting it out as a single uniform CG outline.
+    //
+    // Film grain: static screen-space hash, ~2% modulation, applied last so
+    // the grain texture sits on top of the diffused edges. Reads as a single
+    // captured frame, not animated noise.
+    slabMat.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <dithering_fragment>',
+        `
+        #include <dithering_fragment>
+        vec3 vDir = normalize(vViewPosition);
+        float fres = pow(1.0 - clamp(dot(vDir, normal), 0.0, 1.0), 2.5);
+        float upFace = clamp(normal.y, 0.0, 1.0);
+        float downFace = clamp(-normal.y, 0.0, 1.0);
+        vec3 skyTint   = vec3(0.498, 0.722, 0.863);
+        vec3 hazeTint  = vec3(0.722, 0.784, 0.753);
+        vec3 grassTint = vec3(0.478, 0.572, 0.282);
+        vec3 atmos = mix(hazeTint, skyTint, upFace * 0.7);
+        atmos = mix(atmos, grassTint, downFace * 0.45);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, atmos, fres * 0.26);
+        // Distant-edge contrast lift — glancing faces also lose a touch of
+        // overall contrast as fog absorbs them, mirroring how the far ridges
+        // sit at lower contrast than the foreground grass.
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, hazeTint, fres * fres * 0.10);
+        float grain = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+        gl_FragColor.rgb += grain * 0.022;
+        `
+      );
+    };
+
+    const slab = new THREE.Mesh(slabGeo, slabMat);
+    scene.add(slab);
+
+    // Painted floor shadow — one soft elliptical gradient on a ground-aligned
+    // plane. Replaces the previous stack (dynamic shadow map + contact halo
+    // + AO crease) which flickered as the slab bounced.
+    //
+    // Sizing rule: the painted alpha-0 boundary must finish *inside* every
+    // canvas edge. Otherwise the canvas crops the gradient mid-fade and the
+    // crop reads as a hard line — the failure mode in the previous pass.
+    // The gradient end radius (341 px) is sized so its world-space reach
+    // (~4 plane units horizontally, ~1.33 vertically with the y-scale) fits
+    // inside the camera's visible cone at the plane's z, and the plane is
+    // pushed back in z so the alpha-0 vertical line projects well above the
+    // canvas bottom. Center alpha is also boosted — the previous version
+    // read as a faint smudge.
+    const shadowCanvas = document.createElement('canvas');
+    shadowCanvas.width = 1024;
+    shadowCanvas.height = 341;
+    const sctx = shadowCanvas.getContext('2d');
+    sctx.save();
+    sctx.translate(512, 170.5);
+    sctx.scale(1, 0.333);
+    const grad = sctx.createRadialGradient(0, 0, 0, 0, 0, 341);
+    grad.addColorStop(0.00, 'rgba(10, 14, 8, 0.62)');
+    grad.addColorStop(0.18, 'rgba(10, 14, 8, 0.44)');
+    grad.addColorStop(0.40, 'rgba(10, 14, 8, 0.24)');
+    grad.addColorStop(0.65, 'rgba(10, 14, 8, 0.09)');
+    grad.addColorStop(0.85, 'rgba(10, 14, 8, 0.02)');
+    grad.addColorStop(1.00, 'rgba(10, 14, 8, 0)');
+    sctx.fillStyle = grad;
+    sctx.fillRect(-512, -512, 1024, 1024);
+    sctx.restore();
+
+    const contactTex = new THREE.CanvasTexture(shadowCanvas);
+    contactTex.colorSpace = THREE.SRGBColorSpace;
+    const contactMat = new THREE.MeshBasicMaterial({
+      map: contactTex,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false
+    });
+    const contactShadow = new THREE.Mesh(new THREE.PlaneGeometry(12, 4), contactMat);
+    contactShadow.rotation.x = -Math.PI / 2;
+    contactShadow.rotation.z = 0.04;
+    contactShadow.position.set(-0.4, -1.15, -1.5);
+    contactShadow.renderOrder = 1;
+    scene.add(contactShadow);
+
+    // Lighting matched to the green-mountains backdrop. Hemisphere tones
+    // sampled directly from the image: bright cerulean sky overhead, warm
+    // green grassland-and-earth bounce from below.
+    scene.add(new THREE.HemisphereLight(0x9cc8e0, 0x445028, 0.65));
+
+    // Key — stand-in for the sun. Positioned upper-right and slightly forward
+    // so the lit face mirrors the sunlit right-side slopes of the green hills,
+    // and the cast shadow falls down-left to match the foreground bush and
+    // hill shadows in the photo. Tone sampled from the warm sandstone band
+    // along the cliff tops.
+    const key = new THREE.DirectionalLight(0xf6dcae, 3.1);
+    key.position.set(3.8, 4.7, 2.2);
+    scene.add(key);
+
+    // Rim — pale atmospheric haze sampled from the band where distant ridges
+    // meet the sky, wrapping the slab's shadow (left) side so the silhouette
+    // inherits the same airy wash as the unlit faces of the far hills.
+    const rim = new THREE.DirectionalLight(0x9cb4b0, 1.05);
+    rim.position.set(-3.6, 1.8, -2.6);
+    scene.add(rim);
+
+    // Fill — green grassland bounce sampled from the foreground field, lifting
+    // the slab's shadow side with the same cool-warm green that lights the
+    // bottoms of the foreground bushes.
+    const fill = new THREE.DirectionalLight(0x8ca44c, 0.32);
+    fill.position.set(-1.4, -0.3, 3.2);
+    scene.add(fill);
+
+    // Sheen — warm haze tone, nudged toward the sun side so the brightest
+    // edge sits on the lit half of the slab, not dead-centre.
+    const sheen = new THREE.PointLight(0xd0c098, 4.6, 14, 2);
+    sheen.position.set(0.9, 2.6, 1.4);
+    scene.add(sheen);
+
+    // Sky scatter — overhead directional light tinted with the bright sky
+    // blue so the slab's top edges pick up the same scattered glow that
+    // washes the cliff tops. Kept low-intensity: atmospheric colour bleed,
+    // not a second key.
+    const skyScatter = new THREE.DirectionalLight(0xa8cce8, 0.55);
+    skyScatter.position.set(0.2, 5, 0.4);
+    scene.add(skyScatter);
+
+    function resize() {
+      const rect = canvas.getBoundingClientRect();
+      const w = Math.max(1, rect.width);
+      const h = Math.max(1, rect.height);
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    resize();
+    new ResizeObserver(resize).observe(canvas);
+
+    // Smoothed pointer — target is the raw mouse position in [-1, 1], current
+    // is what the slab actually responds to (lerped each frame for a heavy,
+    // anti-gravity feel rather than a 1:1 trackpad twitch).
+    const pointer = { tx: 0, ty: 0, x: 0, y: 0 };
+    window.addEventListener('pointermove', (e) => {
+      pointer.tx = (e.clientX / window.innerWidth) * 2 - 1;
+      pointer.ty = (e.clientY / window.innerHeight) * 2 - 1;
+    }, { passive: true });
+
+    const clock = new THREE.Clock();
+    const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+    const ENTER = 3.0;
+    // Equilibrium hover height in world space. Tuned so the slab's full bob
+    // amplitude fits cleanly inside the camera's visible vertical range —
+    // peak-bob crests stay below the canvas top edge so the slab never
+    // clips and never needs a softening mask.
+    const HOVER = 0.3;
+    /* Painted floor-shadow opacity. Combined with the boosted gradient
+       alphas, this lands the shadow firmly on the grass without it
+       reading as a defined oval. */
+    const CONTACT_OPACITY = 0.9;
+    const CONTACT_BASE_X = -0.4;
+
+    function frame() {
+      const t = clock.getElapsedTime();
+
+      // Entry: opacity-only fade-in. A positional drop from above the canvas
+      // crossed the top edge as a hard silhouette line before the slab
+      // settled; fading in at the equilibrium hover height lets the slab
+      // come in cleanly with no edge artifact.
+      const e = reduceMotion ? 1 : Math.min(1, t / ENTER);
+      const ease = easeOutCubic(e);
+      const enterY = 0;
+      const opacity = ease;
+
+      // Pointer lerp — slow follow gives the slab inertia, like it's correcting
+      // its position rather than tracking the cursor instantly.
+      pointer.x += (pointer.tx - pointer.x) * 0.045;
+      pointer.y += (pointer.ty - pointer.y) * 0.045;
+
+      // Procedural motion — layered sines at incommensurable frequencies so
+      // the slab never visibly loops. Vertical hover is the dominant signal:
+      // a strong primary rise/fall, a slow undertone, and a smaller
+      // correction wave. Bob peaks fit just inside the camera's vertical
+      // FOV; wobble amplitudes are loose enough to read as a heavy mass
+      // settling against unseen currents without crossing into game-y tilt.
+      const bobY   = Math.sin(t * 0.28)        * 0.42
+                   + Math.cos(t * 0.13 + 0.4)  * 0.12
+                   + Math.sin(t * 0.48 + 1.3)  * 0.06;
+      const driftX = Math.sin(t * 0.14 + 0.6)  * 0.040
+                   + Math.cos(t * 0.31 + 1.9)  * 0.014;
+      const driftY = Math.cos(t * 0.18 + 0.2)  * 0.018;
+      const wobX   = Math.sin(t * 0.23)        * 0.018
+                   + Math.cos(t * 0.43 + 0.4)  * 0.009;
+      const wobY   = Math.sin(t * 0.15 + 0.9)  * 0.024
+                   + Math.cos(t * 0.36 + 0.8)  * 0.012;
+      const wobZ   = Math.cos(t * 0.21)        * 0.014
+                   + Math.sin(t * 0.39 + 1.1)  * 0.007;
+
+      // Blend wobble + cursor influence. Multiplied by `ease` so motion ramps
+      // in as the slab settles, instead of popping on at the end of entry.
+      const blend = reduceMotion ? 0 : ease;
+
+      // Cursor influence — the slab drifts toward where the pointer is in
+      // world space. Range is wider than feels strictly "subtle" at any one
+      // instant, but the slow lerp above means the slab is always *behind*
+      // the cursor by a beat — the eye reads that lag as the object being
+      // gently pulled, not snap-tracking. Vertical influence is roughly
+      // half the horizontal because the camera's vertical FOV is tighter
+      // and the slab can clip the canvas top at full bob + full cursor lift.
+      slab.position.x = (driftX + pointer.x *  0.32) * blend;
+      const verticalDelta = (bobY + driftY - pointer.y * 0.12) * blend;
+      slab.position.y = HOVER + enterY + verticalDelta;
+
+      // Perspective coupling — a small rotational tip tied to the slab's
+      // vertical offset from equilibrium. Negative coefficient: at the top of
+      // the bob the slab leans its underside toward the lens (camera sits
+      // just below the bob crest, so the bottom face opens up); at the
+      // bottom of the bob the slab tips its top face toward the lens. Peaks
+      // at ~±2.5°, so the change reads as a hovering object catching slightly
+      // different facets through its travel rather than as a rotation
+      // animation. Inherits the bob's slow cadence for free since bobY is
+      // already a sum of low-frequency sines.
+      const perspectiveTilt = -verticalDelta * 0.09;
+
+      slab.rotation.x = (wobX - pointer.y * 0.10) * blend + perspectiveTilt;
+      slab.rotation.y = (wobY + pointer.x * 0.20) * blend;
+      slab.rotation.z = (wobZ + pointer.x * 0.04) * blend;
+
+      slabMat.opacity = opacity;
+
+      // Painted shadow holds steady as the slab bounces — a hovering
+      // object's floor shadow shouldn't visibly track its hover height, and
+      // a stable opacity means no per-frame flicker. Horizontal drift only
+      // partially follows the slab so the shadow feels anchored to the
+      // ground rather than glued to the object.
+      contactMat.opacity = CONTACT_OPACITY * opacity;
+      contactShadow.position.x = CONTACT_BASE_X + slab.position.x * 0.4;
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
