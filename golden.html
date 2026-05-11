@@ -18,18 +18,36 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400&display=swap" rel="stylesheet">
+  <!-- Preloads — kick off the two heaviest assets early so the unified
+       reveal can fire as soon as possible rather than waiting on a serial
+       network walk. Three.js modules are not modulepreloaded because the
+       importmap-mapped specifier can mismatch the preload URL in some
+       browsers and silently hang window.load. -->
+  <link rel="preload" as="image" href="golden-background.jpg">
+  <link rel="preload" as="image" href="foreground.png">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     html, body { height: 100%; overflow: hidden; }
-    body { font-family: 'IBM Plex Sans', sans-serif; }
+    /* Unified reveal — body holds at opacity 0 until the background image,
+       foreground image, fonts, and three.js scene are all ready. Then we
+       add `.ready` and everything fades up together instead of staging in
+       network-order (mountains → field → trees → slab). */
+    body {
+      font-family: 'IBM Plex Sans', sans-serif;
+      opacity: 0;
+      transition: opacity 0.8s ease-out;
+    }
+    body.ready { opacity: 1; }
     input:-webkit-autofill {
       -webkit-box-shadow: 0 0 0 30px rgba(255,255,255,0.05) inset !important;
       -webkit-text-fill-color: white !important;
     }
     /* Layer stack — back to front:
        0  #bg-mountain   distant mountains + sky
+       1  #tree-shadow   soft dark wash behind the foreground treeline
        2  #foreground    grass terrain plate
        3  #contact-haze  warm green air right where slab meets terrain
+       3  .monolith-shadow CSS ground shadow under the slab
        4  .monolith-scene  the slab, fully in front of the grass
        10 footer/main    UI on top of everything
     */
@@ -45,6 +63,30 @@
       /* Slight scale so parallax translate never reveals an edge */
       transform: scale(1.04);
     }
+    /* Soft dark wash sitting between the mountain plate and the foreground.
+       It only reads where the foreground PNG has alpha (just above and
+       around the treeline), darkening the air right behind the trees so
+       they sit into the scene instead of cutting against the sky. */
+    #tree-shadow {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 20vh;
+      height: 28vh;
+      z-index: 1;
+      pointer-events: none;
+      background: linear-gradient(to top,
+        rgba(18, 26, 16, 0.32) 0%,
+        rgba(18, 26, 16, 0.18) 35%,
+        rgba(18, 26, 16, 0.06) 70%,
+        rgba(18, 26, 16, 0)    100%);
+    }
+    @media (max-aspect-ratio: 1/1) {
+      #tree-shadow {
+        bottom: 12vh;
+        height: 22vh;
+      }
+    }
     .monolith-scene {
       position: absolute;
       inset: 0;
@@ -52,24 +94,21 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      /* Bottom-anchored so the slab sits right around the foreground
+         treeline (top of the solid grass band, ~27vh from viewport bottom
+         on desktop). padding-bottom places the canvas bottom; the slab
+         inside the canvas hovers ~14vh above that. */
+      justify-content: flex-end;
+      padding-bottom: 24vh;
       gap: 32px;
       pointer-events: none;
-      /* Pushes the canvas slightly down so the cast shadow lands cleanly
-         within the foreground band (lower third) while the slab itself
-         stays well above the ridgeline. */
-      transform: translateY(4vh);
       will-change: transform;
     }
-    /* Portrait / narrow viewports — preserve the same composition logic
-       (slab hovers, shadow lands on foreground) by enlarging the canvas and
-       pushing it further down so the shadow lands inside the (now 40vh)
-       foreground's solid band. translateY tuned so:
-         - slab bottom sits ~5vh above the foreground's visible edge
-         - shadow lands ~4vh inside the >90%-opaque area of the mask. */
     @media (max-aspect-ratio: 1/1) {
       .monolith-scene {
-        transform: translateY(20vh);
+        /* Mobile foreground is 40vh and the treeline sits lower in the
+           viewport, so the slab needs to drop with it. */
+        padding-bottom: 20vh;
       }
       #monolith-canvas {
         width: 90vw;
@@ -137,38 +176,49 @@
         rgba(0,0,0,0.15) 92%,
         transparent      100%);
     }
+    /* Drive the image off its height, not its width, so the grass plate keeps
+       its vertical presence at any viewport width and simply overflows
+       horizontally (centered). Without this the img scales with the viewport
+       width and the foreground reads as a thinner strip as the browser
+       narrows. */
     #foreground img {
       display: block;
       position: absolute;
       bottom: 0;
-      left: 0;
-      width: 100%;
-      height: auto;
-      /* PNG already carries alpha for the sky region; bottom-anchored so
-         the visible band is the grass + lower hills. */
+      left: 50%;
+      transform: translateX(-50%);
+      height: 100%;
+      width: auto;
+      min-width: 100%;
+      max-width: none;
+      object-fit: cover;
+      object-position: center bottom;
     }
-    @media (max-aspect-ratio: 1/1) {
-      #foreground {
-        /* Mobile foreground holds at ~40vh so the monolith's cast shadow
-           lands well inside the solid lower band of the mask rather than
-           drifting up to the foreground's faded top edge or onto the
-           background mountain plate. */
-        height: 40vh;
-      }
-      /* On narrow viewports drive the image off its height instead of width,
-         so the grass plate keeps its vertical presence and simply overflows
-         horizontally (centered). Without this the img collapses to the
-         viewport width and the foreground reads as a thin strip. */
-      #foreground img {
-        height: 100%;
-        width: auto;
-        min-width: 100%;
-        max-width: none;
-        left: 50%;
-        transform: translateX(-50%);
-        object-fit: cover;
-        object-position: center bottom;
-      }
+    /* CSS oval ground shadow — lives on the foreground band (z above the
+       grass plate, below the slab) so it grounds the monolith without ever
+       appearing on the sky or distant landscape. Position/scale/opacity
+       breathe with the slab's hover via three.js (see frame loop). */
+    .monolith-shadow {
+      position: absolute;
+      left: 50%;
+      bottom: 12%;
+      width: clamp(200px, 34vw, 540px);
+      height: clamp(30px, 5.5vw, 96px);
+      transform: translateX(-50%) scale(1);
+      border-radius: 50%;
+      background: radial-gradient(
+        ellipse at center,
+        rgba(0, 0, 0, 0.62) 0%,
+        rgba(0, 0, 0, 0.42) 38%,
+        rgba(0, 0, 0, 0.20) 62%,
+        rgba(0, 0, 0, 0.06) 82%,
+        rgba(0, 0, 0, 0) 100%
+      );
+      filter: blur(16px);
+      pointer-events: none;
+      z-index: 3;
+      opacity: 0;
+      will-change: transform, opacity;
     }
     @keyframes fade-up {
       from { opacity: 0; transform: translateY(10px); }
@@ -176,7 +226,21 @@
     }
     .fade-in {
       opacity: 0;
+    }
+    /* Animation runs only after the unified reveal so the Contact Us link
+       comes in on the same clock as the rest of the scene. */
+    body.ready .fade-in {
       animation: fade-up 1.2s ease forwards;
+    }
+    /* Global tonal wash — uniform 3% black over the whole scene to deepen
+       contrast slightly and unify the layered plates. Sits above every
+       scene layer but is pointer-transparent so it never affects clicks. */
+    #global-tone {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      pointer-events: none;
+      background: rgba(0, 0, 0, 0.03);
     }
   </style>
 </head>
@@ -185,6 +249,9 @@
 
     <!-- Background mountain layer -->
     <div id="bg-mountain"></div>
+
+    <!-- Soft atmospheric shadow behind the foreground treeline -->
+    <div id="tree-shadow"></div>
 
     <script>
       // Query param keeps the original "swap background" behaviour. When set,
@@ -198,6 +265,10 @@
         }
       })();
     </script>
+
+    <!-- CSS ground shadow — animated by the three.js frame loop so its size
+         and opacity track the slab's hover. -->
+    <div class="monolith-shadow" id="monolith-shadow"></div>
 
     <!-- Three.js monolith — sits between background and foreground -->
     <div class="monolith-scene">
@@ -214,7 +285,7 @@
          so the foreground dissolves atmospherically rather than cutting at
          a hard line. -->
     <div id="foreground">
-      <img src="golden-foreground.png" alt="">
+      <img src="foreground.png" alt="">
     </div>
 
     <main class="relative z-10 flex-1"></main>
@@ -232,6 +303,9 @@
       </a>
     </footer>
 
+    <!-- Global 3% black tonal wash, on top of everything -->
+    <div id="global-tone"></div>
+
   </div>
 
   <script>
@@ -239,7 +313,7 @@
     // separated foreground only matches the default landscape.
     (function () {
       if (document.documentElement.dataset.singleLayer !== 'true') return;
-      ['foreground', 'contact-haze'].forEach(function (id) {
+      ['foreground', 'contact-haze', 'monolith-shadow', 'tree-shadow'].forEach(function (id) {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
       });
@@ -274,6 +348,36 @@
       }
       requestAnimationFrame(tick);
     })();
+  </script>
+
+  <script>
+    // Unified reveal coordinator. Holds the body hidden until window.load
+    // (background + foreground decoded, modules fetched) and the three.js
+    // module's warm-up render have both fired, then reveals everything at
+    // once and resets the three.js clock so the slab's entrance animation
+    // starts from t=0 at the moment the body becomes visible.
+    //
+    // Safety: if any of those signals never fires, a 5s timeout reveals the
+    // page anyway. Better a slightly staggered scene than a permanently
+    // blank page.
+    window.__threeReadyPromise__ = new Promise(function (r) {
+      window.__threeReady__ = r;
+    });
+    function __reveal__() {
+      if (document.body.classList.contains('ready')) return;
+      if (window.__threeClock__ && window.__threeClock__.start) {
+        window.__threeClock__.start();
+      }
+      document.body.classList.add('ready');
+    }
+    Promise.all([
+      new Promise(function (r) {
+        if (document.readyState === 'complete') r();
+        else window.addEventListener('load', r);
+      }),
+      window.__threeReadyPromise__
+    ]).then(__reveal__);
+    setTimeout(__reveal__, 5000);
   </script>
 
   <script type="importmap">
@@ -358,7 +462,9 @@
     // crevice shadows (avoids pure black, picks up the scene's green cast)
     // with a warm sandstone sheen at glancing angles so the slab's edges
     // catch the same warm-rim glow that lights the cliff tops.
-    const slabGeo = new RoundedBoxGeometry(4.8, 0.75, 0.65, 6, 0.045);
+    /* Thinner slab — width:height = 10:1 (4.8 / 0.48). Reads as a more
+       refined emdash silhouette than the previous 6:1 brick. */
+    const slabGeo = new RoundedBoxGeometry(4.8, 0.48, 0.55, 6, 0.04);
     const slabMat = new THREE.MeshPhysicalMaterial({
       color: 0x1f2820,
       metalness: 0.42,
@@ -413,51 +519,10 @@
     const slab = new THREE.Mesh(slabGeo, slabMat);
     scene.add(slab);
 
-    // Painted floor shadow — one soft elliptical gradient on a ground-aligned
-    // plane. Replaces the previous stack (dynamic shadow map + contact halo
-    // + AO crease) which flickered as the slab bounced.
-    //
-    // Sizing rule: the painted alpha-0 boundary must finish *inside* every
-    // canvas edge. Otherwise the canvas crops the gradient mid-fade and the
-    // crop reads as a hard line — the failure mode in the previous pass.
-    // The gradient end radius (341 px) is sized so its world-space reach
-    // (~4 plane units horizontally, ~1.33 vertically with the y-scale) fits
-    // inside the camera's visible cone at the plane's z, and the plane is
-    // pushed back in z so the alpha-0 vertical line projects well above the
-    // canvas bottom. Center alpha is also boosted — the previous version
-    // read as a faint smudge.
-    const shadowCanvas = document.createElement('canvas');
-    shadowCanvas.width = 1024;
-    shadowCanvas.height = 341;
-    const sctx = shadowCanvas.getContext('2d');
-    sctx.save();
-    sctx.translate(512, 170.5);
-    sctx.scale(1, 0.333);
-    const grad = sctx.createRadialGradient(0, 0, 0, 0, 0, 341);
-    grad.addColorStop(0.00, 'rgba(10, 14, 8, 0.62)');
-    grad.addColorStop(0.18, 'rgba(10, 14, 8, 0.44)');
-    grad.addColorStop(0.40, 'rgba(10, 14, 8, 0.24)');
-    grad.addColorStop(0.65, 'rgba(10, 14, 8, 0.09)');
-    grad.addColorStop(0.85, 'rgba(10, 14, 8, 0.02)');
-    grad.addColorStop(1.00, 'rgba(10, 14, 8, 0)');
-    sctx.fillStyle = grad;
-    sctx.fillRect(-512, -512, 1024, 1024);
-    sctx.restore();
-
-    const contactTex = new THREE.CanvasTexture(shadowCanvas);
-    contactTex.colorSpace = THREE.SRGBColorSpace;
-    const contactMat = new THREE.MeshBasicMaterial({
-      map: contactTex,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false
-    });
-    const contactShadow = new THREE.Mesh(new THREE.PlaneGeometry(12, 4), contactMat);
-    contactShadow.rotation.x = -Math.PI / 2;
-    contactShadow.rotation.z = 0.04;
-    contactShadow.position.set(-0.4, -1.15, -1.5);
-    contactShadow.renderOrder = 1;
-    scene.add(contactShadow);
+    // Ground shadow is rendered by the CSS `.monolith-shadow` element on top
+    // of the foreground plate — see the frame loop where its scale/opacity
+    // are driven from the slab's vertical offset.
+    const shadowEl = document.getElementById('monolith-shadow');
 
     // Lighting matched to the green-mountains backdrop. Hemisphere tones
     // sampled directly from the image: bright cerulean sky overhead, warm
@@ -524,96 +589,85 @@
     const clock = new THREE.Clock();
     const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
     const ENTER = 3.0;
-    // Equilibrium hover height in world space. Tuned so the slab's full bob
-    // amplitude fits cleanly inside the camera's visible vertical range —
-    // peak-bob crests stay below the canvas top edge so the slab never
-    // clips and never needs a softening mask.
-    const HOVER = 0.3;
-    /* Painted floor-shadow opacity. Combined with the boosted gradient
-       alphas, this lands the shadow firmly on the grass without it
-       reading as a defined oval. */
-    const CONTACT_OPACITY = 0.9;
-    const CONTACT_BASE_X = -0.4;
+    // Equilibrium hover height — slab settles here after the descent. Tuned
+    // with the thinner slab + reduced bob so peak crests stay well inside
+    // the canvas vertical range.
+    const HOVER = 0.5;
+    /* Base opacity for the CSS oval shadow at rest. The frame loop modulates
+       this with the slab's vertical position so the shadow breathes with the
+       hover (high → smaller/lighter, low → wider/darker). */
+    const SHADOW_BASE_OPACITY = 1.0;
 
     function frame() {
       const t = clock.getElapsedTime();
 
-      // Entry: opacity-only fade-in. A positional drop from above the canvas
-      // crossed the top edge as a hard silhouette line before the slab
-      // settled; fading in at the equilibrium hover height lets the slab
-      // come in cleanly with no edge artifact.
+      // Entry: slab descends from above the equilibrium hover and fades in
+      // together so material + cast shadow read as one settling motion.
       const e = reduceMotion ? 1 : Math.min(1, t / ENTER);
       const ease = easeOutCubic(e);
-      const enterY = 0;
+      const enterY = (1 - ease) * 1.3;
       const opacity = ease;
 
-      // Pointer lerp — slow follow gives the slab inertia, like it's correcting
-      // its position rather than tracking the cursor instantly.
-      pointer.x += (pointer.tx - pointer.x) * 0.045;
-      pointer.y += (pointer.ty - pointer.y) * 0.045;
+      // Pointer lerp — slow follow gives the slab inertia. Cursor influence
+      // below is intentionally tiny so the dominant motion is the
+      // procedural breath, not trackpad tracking.
+      pointer.x += (pointer.tx - pointer.x) * 0.04;
+      pointer.y += (pointer.ty - pointer.y) * 0.04;
 
       // Procedural motion — layered sines at incommensurable frequencies so
-      // the slab never visibly loops. Vertical hover is the dominant signal:
-      // a strong primary rise/fall, a slow undertone, and a smaller
-      // correction wave. Bob peaks fit just inside the camera's vertical
-      // FOV; wobble amplitudes are loose enough to read as a heavy mass
-      // settling against unseen currents without crossing into game-y tilt.
-      const bobY   = Math.sin(t * 0.28)        * 0.42
-                   + Math.cos(t * 0.13 + 0.4)  * 0.12
-                   + Math.sin(t * 0.48 + 1.3)  * 0.06;
-      const driftX = Math.sin(t * 0.14 + 0.6)  * 0.040
-                   + Math.cos(t * 0.31 + 1.9)  * 0.014;
-      const driftY = Math.cos(t * 0.18 + 0.2)  * 0.018;
-      const wobX   = Math.sin(t * 0.23)        * 0.018
-                   + Math.cos(t * 0.43 + 0.4)  * 0.009;
-      const wobY   = Math.sin(t * 0.15 + 0.9)  * 0.024
-                   + Math.cos(t * 0.36 + 0.8)  * 0.012;
-      const wobZ   = Math.cos(t * 0.21)        * 0.014
-                   + Math.sin(t * 0.39 + 1.1)  * 0.007;
+      // the loop never visibly repeats. Amplitudes deliberately small: a
+      // slight pulsating hover, not a swaying logo. Primary bob peaks at
+      // ~0.10 world units (about 1/5 of the slab's height) so the slab
+      // reads as quietly suspended.
+      const bobY   = Math.sin(t * 0.26)        * 0.090
+                   + Math.cos(t * 0.13 + 0.4)  * 0.028
+                   + Math.sin(t * 0.48 + 1.3)  * 0.014;
+      const driftX = Math.sin(t * 0.14 + 0.6)  * 0.018
+                   + Math.cos(t * 0.31 + 1.9)  * 0.006;
+      const driftY = Math.cos(t * 0.18 + 0.2)  * 0.008;
+      const wobX   = Math.sin(t * 0.23)        * 0.005
+                   + Math.cos(t * 0.43 + 0.4)  * 0.002;
+      const wobY   = Math.sin(t * 0.15 + 0.9)  * 0.007
+                   + Math.cos(t * 0.36 + 0.8)  * 0.003;
+      const wobZ   = Math.cos(t * 0.21)        * 0.004
+                   + Math.sin(t * 0.39 + 1.1)  * 0.002;
 
-      // Blend wobble + cursor influence. Multiplied by `ease` so motion ramps
-      // in as the slab settles, instead of popping on at the end of entry.
+      // Blend ramps motion in with entry so wobble doesn't pop on at end.
       const blend = reduceMotion ? 0 : ease;
 
-      // Cursor influence — the slab drifts toward where the pointer is in
-      // world space. Range is wider than feels strictly "subtle" at any one
-      // instant, but the slow lerp above means the slab is always *behind*
-      // the cursor by a beat — the eye reads that lag as the object being
-      // gently pulled, not snap-tracking. Vertical influence is roughly
-      // half the horizontal because the camera's vertical FOV is tighter
-      // and the slab can clip the canvas top at full bob + full cursor lift.
-      slab.position.x = (driftX + pointer.x *  0.32) * blend;
-      const verticalDelta = (bobY + driftY - pointer.y * 0.12) * blend;
-      slab.position.y = HOVER + enterY + verticalDelta;
-
-      // Perspective coupling — a small rotational tip tied to the slab's
-      // vertical offset from equilibrium. Negative coefficient: at the top of
-      // the bob the slab leans its underside toward the lens (camera sits
-      // just below the bob crest, so the bottom face opens up); at the
-      // bottom of the bob the slab tips its top face toward the lens. Peaks
-      // at ~±2.5°, so the change reads as a hovering object catching slightly
-      // different facets through its travel rather than as a rotation
-      // animation. Inherits the bob's slow cadence for free since bobY is
-      // already a sum of low-frequency sines.
-      const perspectiveTilt = -verticalDelta * 0.09;
-
-      slab.rotation.x = (wobX - pointer.y * 0.10) * blend + perspectiveTilt;
-      slab.rotation.y = (wobY + pointer.x * 0.20) * blend;
-      slab.rotation.z = (wobZ + pointer.x * 0.04) * blend;
+      slab.position.x = (driftX + pointer.x * 0.06) * blend;
+      slab.position.y = HOVER + enterY + (bobY + driftY - pointer.y * 0.03) * blend;
+      slab.rotation.x = (wobX - pointer.y * 0.04) * blend;
+      slab.rotation.y = (wobY + pointer.x * 0.06) * blend;
+      slab.rotation.z = wobZ * blend;
 
       slabMat.opacity = opacity;
 
-      // Painted shadow holds steady as the slab bounces — a hovering
-      // object's floor shadow shouldn't visibly track its hover height, and
-      // a stable opacity means no per-frame flicker. Horizontal drift only
-      // partially follows the slab so the shadow feels anchored to the
-      // ground rather than glued to the object.
-      contactMat.opacity = CONTACT_OPACITY * opacity;
-      contactShadow.position.x = CONTACT_BASE_X + slab.position.x * 0.4;
+      // CSS ground shadow — vertical delta from the equilibrium hover drives
+      // both scale and opacity so the shadow breathes with the slab:
+      //   slab high  (delta > 0) → smaller, lighter
+      //   slab low   (delta < 0) → wider,   darker
+      // The descent (large positive enterY) keeps the shadow small and
+      // faint, then it settles in as the slab arrives at HOVER.
+      const verticalDelta = slab.position.y - HOVER;
+      const breath = -verticalDelta;
+      const shadowScale = Math.max(0.6, Math.min(1.15, 1 + breath * 0.18));
+      const shadowAlpha = Math.max(0, Math.min(1, 1 + breath * 0.35)) * opacity * SHADOW_BASE_OPACITY;
+      shadowEl.style.transform = `translateX(-50%) scale(${shadowScale.toFixed(3)})`;
+      shadowEl.style.opacity = shadowAlpha.toFixed(3);
 
       renderer.render(scene, camera);
       requestAnimationFrame(frame);
     }
+
+    // Warm-up render — forces shader compilation and GPU state setup before
+    // the unified reveal triggers. Then expose the clock and signal ready;
+    // the reveal handler calls clock.start() so the slab's entrance
+    // animation begins from t=0 the moment the body becomes visible.
+    renderer.render(scene, camera);
+    window.__threeClock__ = clock;
+    if (window.__threeReady__) window.__threeReady__();
+
     requestAnimationFrame(frame);
   </script>
 </body>

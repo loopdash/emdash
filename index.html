@@ -129,7 +129,7 @@
       z-index: 2;
       pointer-events: none;
       height: 60vh;
-      overflow: hidden;
+      overflow: visible;
       /* Soft cinematic top fade — solid grass at the bottom, gradual
          transparency toward the upper edge so the foreground dissolves
          into the atmosphere instead of cutting at a hard horizontal line.
@@ -152,24 +152,18 @@
         rgba(0,0,0,0.15) 92%,
         transparent      100%);
     }
+    /* Image renders at natural aspect at 60vh tall; overflows the container
+       horizontally if wider than the viewport. html/body overflow:hidden
+       prevents the page from scrolling. */
     #foreground img {
       display: block;
       position: absolute;
       bottom: 0;
-      left: 0;
-      width: 100%;
-      height: auto;
-      /* PNG already carries alpha for the sky region; bottom-anchored so
-         the visible band is the grass + lower hills. */
-    }
-    @media (max-aspect-ratio: 1/1) {
-      #foreground {
-        /* Mobile foreground holds at ~40vh so the monolith's cast shadow
-           lands well inside the solid lower band of the mask rather than
-           drifting up to the foreground's faded top edge or onto the
-           background mountain plate. */
-        height: 40vh;
-      }
+      left: 50%;
+      transform: translateX(-50%);
+      height: 100%;
+      width: auto;
+      max-width: none;
     }
     @keyframes fade-up {
       from { opacity: 0; transform: translateY(10px); }
@@ -178,6 +172,13 @@
     .fade-in {
       opacity: 0;
       animation: fade-up 1.2s ease forwards;
+    }
+    #tint {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      pointer-events: none;
+      background: rgba(0, 0, 0, 0.05);
     }
   </style>
 </head>
@@ -237,6 +238,8 @@
     </footer>
 
   </div>
+
+  <div id="tint"></div>
 
   <script>
     // Hide foreground/haze layers when a query-param scene is loaded — the
