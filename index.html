@@ -64,6 +64,13 @@
          continuous and the slab never jumps at any viewport size. */
       padding-top: calc(max(26.67vw, 40vh) + 62px - clamp(24.36px, 7.83vw, 53.94px));
     }
+    /* Desktop: nudge the slab lower so it lands on the yellow field from the
+       start, instead of straddling the treeline. */
+    @media (min-width: 768px) {
+      .monolith-scene {
+        padding-top: calc(max(26.67vw, 40vh) + 122px - clamp(24.36px, 7.83vw, 53.94px));
+      }
+    }
     .monolith-wrapper {
       position: relative;
       width: 100%;
@@ -75,6 +82,10 @@
       width: clamp(280px, 90vw, 620px);
       aspect-ratio: 720 / 240;
       height: auto;
+      /* Soft top mask so the slab can descend from above without showing
+         a hard canvas-edge crossing during the entrance. */
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.4) 8%, black 18%, black 100%);
+              mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.4) 8%, black 18%, black 100%);
     }
     /* CSS oval ground shadow — sits inside the wrapper so it tracks the
        canvas wherever the centered scene places it. Scale/opacity breathe
@@ -323,8 +334,14 @@
 
       const e = reduceMotion ? 1 : Math.min(1, t / ENTER);
       const ease = easeOutCubic(e);
-      const enterY = (1 - ease) * 1.3;
-      const opacity = ease;
+      // Descend from above the resting position while opacity ramps from 0 —
+      // the slab is invisible during the high portion of the fall, so the
+      // top edge never reads as a hard line crossing the canvas.
+      const enterY = (1 - ease) * 1.4;
+      // Opacity eases in faster than the fall so the slab is already partly
+      // visible during the final settle, giving the "fade in from the top"
+      // read without a pop-in.
+      const opacity = Math.min(1, ease * 1.15);
 
       // Procedural motion — layered sines at incommensurable frequencies so
       // the loop never visibly repeats. Time-based only — no cursor follow.
