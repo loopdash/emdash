@@ -84,8 +84,8 @@
       height: auto;
       /* Soft top mask so the slab can descend from above without showing
          a hard canvas-edge crossing during the entrance. */
-      -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.4) 8%, black 18%, black 100%);
-              mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.4) 8%, black 18%, black 100%);
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.4) calc(8% - 10px), black calc(18% - 10px), black 100%);
+              mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.4) calc(8% - 10px), black calc(18% - 10px), black 100%);
     }
     /* CSS oval ground shadow — sits inside the wrapper so it tracks the
        canvas wherever the centered scene places it. Scale/opacity breathe
@@ -329,6 +329,27 @@
     const HOVER = 0.5;
     const SHADOW_BASE_OPACITY = 1.0;
 
+    // The top mask exists to hide the slab's edge while it descends into the
+    // canvas. Once the slab has settled, the mask must lift — otherwise the
+    // top of the slab reads as semi-transparent on the up-phase of the bob.
+    const MASK_FADE = 0.6;
+    let maskCleared = false;
+    function updateMask(t) {
+      if (maskCleared) return;
+      const fade = Math.max(0, Math.min(1, (t - ENTER) / MASK_FADE));
+      if (fade >= 1) {
+        canvas.style.maskImage = 'none';
+        canvas.style.webkitMaskImage = 'none';
+        maskCleared = true;
+        return;
+      }
+      const a0 = fade.toFixed(3);
+      const a8 = (0.4 + 0.6 * fade).toFixed(3);
+      const mask = `linear-gradient(to bottom, rgba(0,0,0,${a0}) 0%, rgba(0,0,0,${a8}) calc(8% - 10px), black calc(18% - 10px), black 100%)`;
+      canvas.style.maskImage = mask;
+      canvas.style.webkitMaskImage = mask;
+    }
+
     function frame() {
       const t = clock.getElapsedTime();
 
@@ -367,6 +388,8 @@
       slab.rotation.z = wobZ * blend;
 
       slabMat.opacity = opacity;
+
+      updateMask(t);
 
       const verticalDelta = slab.position.y - HOVER;
       const breath = -verticalDelta;
